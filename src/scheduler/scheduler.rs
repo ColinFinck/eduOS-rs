@@ -43,6 +43,8 @@ extern {
 pub struct Scheduler {
 	/// task id which is currently running
 	current_task: TaskId,
+	/// task id of the idle task
+	idle_task: TaskId,
 	/// queue of tasks, which are ready
 	ready_queue: Option<VecDeque<TaskId>>,
 	/// queue of tasks, which are finished and can be released
@@ -55,6 +57,7 @@ impl Scheduler {
 	pub const fn new() -> Scheduler {
 		Scheduler {
 			current_task: TaskId::from(0),
+			idle_task: TaskId::from(0),
 			ready_queue: None,
 			finished_tasks: None,
 			tasks: None
@@ -76,9 +79,11 @@ impl Scheduler {
 		self.ready_queue = Some(VecDeque::new());
 		self.finished_tasks = Some(VecDeque::new());
 		self.tasks = Some(BTreeMap::new());
+		self.idle_task = self.get_tid();
+		self.current_task = self.idle_task;
 
 		// boot task is implicitly task 0 and and the idle task of core 0
-		let idle_task = Box::new(Task::new(self.get_tid(), TaskStatus::TaskIdle));
+		let idle_task = Box::new(Task::new(self.idle_task, TaskStatus::TaskIdle));
 
 		unsafe {
 			// replace temporary boot stack by the kernel stack of the boot task
@@ -143,7 +148,7 @@ impl Scheduler {
 					Some(task) => {
 						if task.status != TaskStatus::TaskRunning {
 							// current task isn't able to run, no other task available => switch to the idle task
-							self.current_task = TaskId::from(0);
+							self.current_task = self.idle_task;
 						}},
 					None => info!("unable to find task with id {}", self.current_task)
 				}
