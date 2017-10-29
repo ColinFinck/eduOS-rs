@@ -114,19 +114,20 @@ pub trait TaskFrame {
 
 impl Drop for Task {
     fn drop(&mut self) {
-		debug!("dealloactae stack of task {} (stack at 0x{:x})", self.id, self.stack as usize);
+	debug!("deallocate stack of task {} (stack at 0x{:x})", self.id, self.stack as usize);
 
-		// deallocate stack
-        unsafe {
-			Heap.dealloc(self.stack as *mut u8, Layout::new::<KernelStack>());
-		}
+	// deallocate stack
+	unsafe {
+		Heap.dealloc(self.stack as *mut u8, Layout::new::<KernelStack>());
+	}
     }
 }
 
 impl Task {
 	pub fn new(tid: TaskId, task_status: TaskStatus) -> Task {
 		let tmp = unsafe { Heap.alloc(Layout::new::<KernelStack>()).unwrap() as *mut KernelStack };
-		debug!("alloactae stack for task {} at 0x{:x}", tid, tmp as usize);
+
+		debug!("allocate stack for task {} at 0x{:x}", tid, tmp as usize);
 
 		Task {
 			id: tid,
