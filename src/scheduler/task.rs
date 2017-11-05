@@ -29,6 +29,7 @@ use alloc;
 use alloc::heap::{Heap, Alloc, Layout};
 use core::ptr::Shared;
 use logging::*;
+use arch::processor::lsb;
 
 /// The status of the task - used for scheduling
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -133,6 +134,15 @@ impl TaskQueue {
 		}
 	}
 
+	/// Check if the queue is empty
+	#[inline(always)]
+	pub fn is_empty(&self) -> bool {
+		match self.head {
+			None => true,
+			Some(_h) => false
+		}
+	}
+
 	pub fn push_back(&mut self, task: &mut Shared<Task>) {
 		unsafe {
 			match self.tail {
@@ -166,6 +176,69 @@ impl TaskQueue {
 					Some(task)
 				}
 			}
+		}
+	}
+}
+
+/// Realize a priority queue for tasks
+pub struct PriorityTaskQueue {
+	queues: [TaskQueue; NO_PRIORITIES],
+	prio_bitmap: u64
+}
+
+impl PriorityTaskQueue {
+	/// Creates an empty priority queue for tasks
+	pub const fn new() -> PriorityTaskQueue {
+		PriorityTaskQueue {
+			queues: [TaskQueue::new(); NO_PRIORITIES],
+			prio_bitmap: 0
+		}
+	}
+
+	/// Add task by its priority to the queue
+	pub fn push(&mut self, prio: Priority, task: &mut Shared<Task>) {
+		let mut i = prio.into() as usize;
+
+		if i >= NO_PRIORITIES {
+			info!("priority with {} is too high for TaskQueue::push_back()!", prio);
+			i = NO_PRIORITIES - 1;
+		}
+
+		self.prio_bitmap |= 1 << i;
+		self.queues[i].push_back(task);
+	}
+
+	/// Pop the task with the highest priority from the queue
+	pub fn pop(&mut self) -> Option<Shared<Task>> {
+		let i = lsb(self.prio_bitmap);
+
+		if i < NO_PRIORITIES as u64 {
+			let ret = self.queues[i as usize].pop_front();
+
+			if self.queues[i as usize].is_empty() == true {
+				self.prio_bitmap &= !(1 << i);
+			}
+
+			ret
+		} else {
+			None
+		}
+	}
+
+	/// Pop the next task, which has a higher or the same proority like `prio`
+	pub fn pop_with_prio(&mut self, prio: Priority) -> Option<Shared<Task>> {
+		let i = lsb(self.prio_bitmap);
+
+		if i <= prio.into() as u64 {
+			let ret = self.queues[i as usize].pop_front();
+
+			if self.queues[i as usize].is_empty() == true {
+				self.prio_bitmap &= !(1 << i);
+			}
+
+			ret
+		} else {
+			None
 		}
 	}
 }

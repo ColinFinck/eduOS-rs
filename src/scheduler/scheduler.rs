@@ -25,7 +25,6 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use core::ptr::Shared;
 use scheduler::task::*;
 use logging::*;
-use consts::*;
 use alloc::VecDeque;
 use alloc::boxed::Box;
 use alloc::btree_map::*;
@@ -47,7 +46,7 @@ pub struct Scheduler {
 	/// id of the idle task
 	idle_tid: TaskId,
 	/// queues of tasks, which are ready
-	ready_queues: [TaskQueue; NO_PRIORITIES],
+	ready_queue: PriorityTaskQueue,
 	/// queue of tasks, which are finished and can be released
 	finished_tasks: Option<VecDeque<TaskId>>,
 	/// map between task id and task controll block
@@ -59,7 +58,7 @@ impl Scheduler {
 		Scheduler {
 			current_tid: TaskId::from(0),
 			idle_tid: TaskId::from(0),
-			ready_queues: [TaskQueue::new(); NO_PRIORITIES],
+			ready_queue: PriorityTaskQueue::new(),
 			finished_tasks: None,
 			tasks: None
 		}
@@ -101,7 +100,7 @@ impl Scheduler {
 		task.create_stack_frame(func);
 
 		let shared_task = &mut Shared::new_unchecked(Box::into_raw(task));
-		self.ready_queues[prio.into() as usize].push_back(shared_task);
+		self.ready_queue.push(prio, shared_task);
 		self.tasks.as_mut().unwrap().insert(id, *shared_task);
 
 		info!("create task with id {}", id);
@@ -150,7 +149,7 @@ impl Scheduler {
 			debug!("wakeup task {}", task.as_ref().id);
 
 			task.as_mut().status = TaskStatus::TaskReady;
-			self.ready_queues[prio.into() as usize].push_back(&mut Shared::new_unchecked(task.as_mut()));
+			self.ready_queue.push(prio, &mut Shared::new_unchecked(task.as_mut()));
 		}
 	}
 
@@ -172,24 +171,22 @@ impl Scheduler {
 
 	#[inline(always)]
 	unsafe fn get_next_task(&mut self) -> Option<Shared<Task>> {
-		let mut prio = NO_PRIORITIES as usize;
+		let mut prio = LOW_PRIO;
 
 		// if the current task is runable, check only if a task with
 		// higher priority is available
 		match self.tasks.as_ref().unwrap().get(&self.current_tid) {
 			Some(task) => {
 				if task.as_ref().status == TaskStatus::TaskRunning {
-					prio = task.as_ref().prio.into() as usize + 1;
+					prio = task.as_ref().prio;
 				}
 			},
 			None => {}
 		}
 
-		for i in 0..prio {
-			match self.ready_queues[i].pop_front() {
-				Some(task) => return Some(task),
-				None => {}
-			}
+		match self.ready_queue.pop_with_prio(prio) {
+			Some(task) => return Some(task),
+			None => {}
 		}
 
 		None
@@ -248,7 +245,7 @@ impl Scheduler {
 				Some(task) => {
 					if task.as_ref().status == TaskStatus::TaskRunning {
 						task.as_mut().status = TaskStatus::TaskReady;
-						self.ready_queues[task.as_ref().prio.into() as usize].push_back(&mut Shared::new_unchecked(task.as_mut()));
+						self.ready_queue.push(task.as_ref().prio, &mut Shared::new_unchecked(task.as_mut()));
 					} else if task.as_ref().status == TaskStatus::TaskFinished {
 						task.as_mut().status = TaskStatus::TaskInvalid;
 						// release the task later, because the stack is required

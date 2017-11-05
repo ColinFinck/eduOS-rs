@@ -25,7 +25,6 @@ use core::marker::Sync;
 use scheduler::task::*;
 use scheduler::{get_current_taskid,reschedule,block_current_task, wakeup_task,get_priority};
 use synch::spinlock::*;
-use consts::*;
 
 /// A counting, blocking, semaphore.
 ///
@@ -58,8 +57,8 @@ use consts::*;
 pub struct Semaphore {
 	/// Resource available count
 	value: SpinlockIrqSave<isize>,
-	/// Queue of waiting tasks
-	queues: SpinlockIrqSave<[TaskQueue; NO_PRIORITIES]>,
+	/// Priority queue of waiting tasks
+	queue: SpinlockIrqSave<PriorityTaskQueue>,
 }
 
 /// An RAII guard which will release a resource acquired from a semaphore when
@@ -77,7 +76,7 @@ impl Semaphore {
 	pub const fn new(count: isize) -> Semaphore {
 		Semaphore {
 			value: SpinlockIrqSave::new(count),
-			queues: SpinlockIrqSave::new([TaskQueue::new(); NO_PRIORITIES])
+			queue: SpinlockIrqSave::new(PriorityTaskQueue::new())
 		}
 	}
 
@@ -96,7 +95,7 @@ impl Semaphore {
 			} else {
 				let tid = get_current_taskid();
 				let prio = get_priority(tid);
-				self.queues.lock()[prio.into() as usize].push_back(&mut block_current_task());
+				self.queue.lock().push(prio, &mut block_current_task());
 				// release lock
 				drop(count);
 				// switch to the next task
@@ -113,17 +112,13 @@ impl Semaphore {
 		let mut count = self.value.lock();
 		*count += 1;
 
-		let mut guard = self.queues.lock();
-
 		// try to wakeup next task
-		for i in 0..NO_PRIORITIES {
-			match guard[i].pop_front() {
-				Some(task) => {
-					wakeup_task(task);
-					return;
-				},
-				None => {}
-			}
+		match self.queue.lock().pop() {
+			Some(task) => {
+				wakeup_task(task);
+				return;
+			},
+			None => {}
 		}
 	}
 

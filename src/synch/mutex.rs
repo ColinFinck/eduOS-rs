@@ -27,7 +27,6 @@ use core::marker::Sync;
 use scheduler::task::*;
 use scheduler::{get_current_taskid,reschedule,block_current_task,get_priority,wakeup_task};
 use synch::spinlock::*;
-use consts::*;
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///
@@ -62,7 +61,7 @@ pub struct Mutex<T: ?Sized> {
 	/// in principle a binary semaphore
 	value: SpinlockIrqSave<bool>,
 	/// Priority queue of waiting tasks
-	queues: SpinlockIrqSave<[TaskQueue; NO_PRIORITIES]>,
+	queue: SpinlockIrqSave<PriorityTaskQueue>,
 	/// protected data
 	data: UnsafeCell<T>
 }
@@ -72,7 +71,7 @@ pub struct Mutex<T: ?Sized> {
 /// When the guard falls out of scope it will release the lock.
 pub struct MutexGuard<'a, T: ?Sized + 'a> {
 	value: &'a SpinlockIrqSave<bool>,
-	queues: &'a SpinlockIrqSave<[TaskQueue; NO_PRIORITIES]>,
+	queue: &'a SpinlockIrqSave<PriorityTaskQueue>,
 	data: &'a mut T,
 }
 
@@ -89,7 +88,7 @@ impl<T> Mutex<T> {
 	pub const fn new(user_data: T) -> Mutex<T> {
 		Mutex {
 			value: SpinlockIrqSave::new(true),
-			queues: SpinlockIrqSave::new([TaskQueue::new(); NO_PRIORITIES]),
+			queue: SpinlockIrqSave::new(PriorityTaskQueue::new()),
 			data: UnsafeCell::new(user_data)
 		}
 	}
@@ -115,7 +114,7 @@ impl<T: ?Sized> Mutex<T>
 			} else {
 				let tid = get_current_taskid();
 				let prio = get_priority(tid);
-				self.queues.lock()[prio.into() as usize].push_back(&mut block_current_task());
+				self.queue.lock().push(prio, &mut block_current_task());
 				// release lock
 				drop(count);
 				// switch to the next task
@@ -130,7 +129,7 @@ impl<T: ?Sized> Mutex<T>
 		MutexGuard
 		{
 			value: &self.value,
-			queues: &self.queues,
+			queue: &self.queue,
 			data: unsafe { &mut *self.data.get() },
 		}
 	}
@@ -161,17 +160,13 @@ impl<'a, T: ?Sized> Drop for MutexGuard<'a, T>
 		let mut count = self.value.lock();
 		*count = true;
 
-		let mut guard = self.queues.lock();
-
 		// try to wakeup next task
-		for i in 0..NO_PRIORITIES {
-			match guard[i].pop_front() {
-				Some(task) => {
-					wakeup_task(task);
-					return;
-				},
-				None => {}
-			}
+		match self.queue.lock().pop() {
+			Some(task) => {
+				wakeup_task(task);
+				return;
+			},
+			None => {}
 		}
 	}
 }
