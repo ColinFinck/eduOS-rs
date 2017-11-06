@@ -30,6 +30,7 @@
 #![feature(alloc, global_allocator, allocator_api, heap_api)]
 #![feature(const_atomic_usize_new)]
 #![feature(shared)]
+#![feature(const_shared_new)]
 
 #![no_std]
 
