@@ -32,6 +32,7 @@
 #![feature(const_atomic_bool_new)]
 #![feature(const_unsafe_cell_new)]
 #![feature(shared)]
+#![feature(const_shared_new)]
 
 #![no_std]
 
