@@ -58,10 +58,8 @@ pub fn lsb(i: u64) -> u64 {
 }
 
 pub fn halt() {
-	loop {
-		unsafe {
-			asm!("hlt" :::: "volatile");
-		}
+	unsafe {
+		asm!("hlt" :::: "volatile");
 	}
 }
 
@@ -72,14 +70,16 @@ pub fn pause() {
 	}
 }
 
-pub fn shutdown() {
+pub fn shutdown() -> !{
 	// shutdown, works only on Qemu
 	unsafe {
 		let mut shutdown_port : cpuio::Port<u8> = cpuio::Port::new(0xf4);
 		shutdown_port.write(0x00);
 	};
 
-	halt();
+	loop {
+		halt();
+	}
 }
 
 pub fn init() {
