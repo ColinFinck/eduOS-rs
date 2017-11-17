@@ -71,7 +71,7 @@ extern "C" fn foo() {
 ///
 /// Boot loader calls this function to start the kernel
 #[no_mangle]
-pub extern "C" fn rust_main() {
+pub extern "C" fn rust_main() -> ! {
 	arch::init();
 	scheduler::init();
 
